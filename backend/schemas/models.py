@@ -2,14 +2,20 @@
 schemas/models.py
 
 Single source of truth for ALL Pydantic models used in this project.
-Every agent, route, and tool uses these — no ad-hoc dicts anywhere.
+
+Changes from previous version:
+  - Added AnomalySeverity enum (critical / high / medium / low)
+  - AnomalyRecord gains: severity, requires_manual_review
+  - AnomalyReport: total_employees_current renamed to
+    employees_evaluated + employees_in_current_payroll
+  - HITLPreview: total_employees renamed to employees_in_current_payroll
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -29,6 +35,22 @@ class AnomalyCategory(str, Enum):
     no_anomaly = "no_anomaly"
 
 
+class AnomalySeverity(str, Enum):
+    """
+    Severity is intentionally separate from category.
+
+    A salary_revision can be medium severity (routine appraisal)
+    or critical severity (90%+ increase that still needs manual sign-off).
+
+    Severity drives requires_manual_review and report sort order.
+    Category drives the HR action and explanation.
+    """
+    critical = "critical"   # >= 90% net pay change
+    high = "high"           # >= 50% change  OR  missing_slip
+    medium = "medium"       # >= 15% change  OR  missing_deduction
+    low = "low"             # new_employee   OR  < 15% change
+
+
 class SessionStatus(str, Enum):
     awaiting_confirmation = "awaiting_confirmation"
     confirmed = "confirmed"
@@ -44,13 +66,10 @@ class DocStatus(int, Enum):
 
 # ---------------------------------------------------------------------------
 # ERPNext raw data models
-# (These mirror ERPNext's response fields — used by tools and DataFetchAgent)
 # ---------------------------------------------------------------------------
 
 
 class SalarySlipSummary(BaseModel):
-    """Lightweight slip — returned by the list endpoint."""
-
     name: str
     employee: str
     employee_name: str
@@ -63,23 +82,18 @@ class SalarySlipSummary(BaseModel):
 
     @property
     def status_label(self) -> str:
-        return {0: "Draft", 1: "Submitted", 2: "Cancelled"}.get(self.docstatus, "Unknown")
+        return {0: "Draft", 1: "Submitted", 2: "Cancelled"}.get(
+            self.docstatus, "Unknown"
+        )
 
 
 class SalaryComponent(BaseModel):
-    """A single earning or deduction line inside a salary slip."""
-
     salary_component: str
     amount: float = 0.0
-    component_type: Optional[str] = None  # "earning" or "deduction"
+    component_type: Optional[str] = None
 
 
 class SalarySlipDetail(BaseModel):
-    """
-    Full salary slip — returned by the document endpoint.
-    Includes component-level breakdown for deduction analysis.
-    """
-
     name: str
     employee: str
     employee_name: str
@@ -94,8 +108,6 @@ class SalarySlipDetail(BaseModel):
 
 
 class EmployeeSummary(BaseModel):
-    """Lightweight employee — returned by the list endpoint."""
-
     name: str
     employee_name: str
     department: Optional[str] = None
@@ -103,8 +115,6 @@ class EmployeeSummary(BaseModel):
 
 
 class EmployeeDetail(BaseModel):
-    """Full employee record — returned by the document endpoint."""
-
     name: str
     employee_name: str
     department: Optional[str] = None
@@ -117,58 +127,51 @@ class EmployeeDetail(BaseModel):
 
 # ---------------------------------------------------------------------------
 # Pipeline processing models
-# (Used internally by comparison, anomaly, categorization agents)
 # ---------------------------------------------------------------------------
 
 
 class ComparisonRecord(BaseModel):
-    """
-    Per-employee diff between current and previous month.
-    Produced by ComparisonAgent, consumed by AnomalyDetectorAgent.
-    """
-
     employee_id: str
     employee_name: str
 
-    # Net pay
     prev_net: Optional[float] = None
     curr_net: Optional[float] = None
     net_delta: Optional[float] = None
     net_delta_pct: Optional[float] = None
 
-    # Gross pay
     prev_gross: Optional[float] = None
     curr_gross: Optional[float] = None
 
-    # Deductions
     prev_deductions: Optional[float] = None
     curr_deductions: Optional[float] = None
     deduction_delta: Optional[float] = None
 
-    # Source slip names (for detailed lookup if needed)
     prev_slip_name: Optional[str] = None
     curr_slip_name: Optional[str] = None
 
-    # Component-level deduction names (for missing deduction detection)
     prev_deduction_components: list[str] = Field(default_factory=list)
     curr_deduction_components: list[str] = Field(default_factory=list)
+
+    # Empty list when curr_slip is None (missing_slip case).
+    # Comparing deductions against a missing slip is meaningless.
     missing_deduction_components: list[str] = Field(default_factory=list)
 
 
 class FlaggedRecord(BaseModel):
-    """
-    A ComparisonRecord that crossed the anomaly threshold.
-    Produced by AnomalyDetectorAgent, consumed by CategorizationAgent.
-    """
-
     comparison: ComparisonRecord
-    anomaly_reasons: list[str]  # e.g. ["large_net_change", "missing_deduction"]
+    anomaly_reasons: list[str]
 
 
 class AnomalyRecord(BaseModel):
     """
-    Fully enriched anomaly entry — the final output per employee.
-    Produced by CategorizationAgent, assembled by ReportBuilderAgent.
+    Fully enriched anomaly entry.
+
+    category and severity are SEPARATE concepts:
+      category  = what kind of payroll event this is
+      severity  = how urgently it needs human attention
+
+    Example: salary_revision + critical severity means the revision was
+    so large it still needs a manual sign-off even though it may be valid.
     """
 
     employee_id: str
@@ -179,10 +182,14 @@ class AnomalyRecord(BaseModel):
     prev_deductions: Optional[float] = None
     curr_deductions: Optional[float] = None
     missing_deduction_components: list[str] = Field(default_factory=list)
+
     anomaly_category: AnomalyCategory
+    severity: AnomalySeverity
+    requires_manual_review: bool
+
     anomaly_reasons: list[str] = Field(default_factory=list)
     suggested_action: str
-    llm_explanation: Optional[str] = None  # LLM-generated context (CategorizationAgent)
+    llm_explanation: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -191,8 +198,6 @@ class AnomalyRecord(BaseModel):
 
 
 class AnomalyBreakdown(BaseModel):
-    """Count of anomalies per category — shown in the HITL preview."""
-
     new_employee: int = 0
     salary_revision: int = 0
     data_error: int = 0
@@ -201,22 +206,16 @@ class AnomalyBreakdown(BaseModel):
 
 
 class TopAnomaly(BaseModel):
-    """Compact anomaly entry for the HITL top-3 preview."""
-
     employee_name: str
     prev_net_pay: Optional[float]
     curr_net_pay: Optional[float]
     pct_change: Optional[float]
     category: AnomalyCategory
+    severity: AnomalySeverity
 
 
 class HITLPreview(BaseModel):
-    """
-    The data shown to the user before they confirm/cancel.
-    Returned by /run when status is awaiting_confirmation.
-    """
-
-    total_employees: int
+    employees_in_current_payroll: int
     total_anomalies: int
     breakdown: AnomalyBreakdown
     top_3_anomalies: list[TopAnomaly]
@@ -229,17 +228,18 @@ class HITLPreview(BaseModel):
 
 
 class AnomalyReport(BaseModel):
-    """The complete finalized report returned after HITL confirmation."""
-
     generated_at: datetime
-    period_current: str          # e.g. "2026-05"
-    period_previous: str         # e.g. "2026-04"
-    total_employees_current: int
+    period_current: str
+    period_previous: str
+
+    employees_evaluated: int            # union of both months
+    employees_in_current_payroll: int   # current month only
+
     total_anomalies: int
     threshold_pct: float
     anomalies: list[AnomalyRecord]
     agents_involved: list[str]
-    summary: str                 # LLM-generated executive summary
+    summary: str
 
 
 # ---------------------------------------------------------------------------
@@ -248,8 +248,6 @@ class AnomalyReport(BaseModel):
 
 
 class PendingSession(BaseModel):
-    """One HITL session stored in memory between /run and /confirm."""
-
     session_id: str = Field(default_factory=lambda: str(uuid4()))
     status: SessionStatus = SessionStatus.awaiting_confirmation
     prompt: str
@@ -267,12 +265,12 @@ class PendingSession(BaseModel):
 class RunRequest(BaseModel):
     prompt: str = Field(
         ...,
-        example="Review this month's payroll and flag anything that seems off compared to last month.",
+        example="Review this month's payroll and flag anything that seems off.",
     )
 
 
 class RunResponse(BaseModel):
-    status: str  # "awaiting_confirmation" | "completed"
+    status: str
     session_id: str
     preview: Optional[HITLPreview] = None
     report: Optional[AnomalyReport] = None
@@ -299,8 +297,6 @@ class HealthResponse(BaseModel):
 
 
 class SessionSummary(BaseModel):
-    """Compact session info returned by /history."""
-
     session_id: str
     status: SessionStatus
     prompt: str
