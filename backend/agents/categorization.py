@@ -279,27 +279,27 @@ class CategorizationAgent:
         """
         Assign anomaly category from payroll context — no LLM, no randomness.
 
-        Decision tree (evaluated top-to-bottom, first match wins):
+          Decision tree (evaluated top-to-bottom, first match wins):
 
-        1. No previous slip → new_employee
-           (absence of history is unambiguous)
+          1. No previous slip → new_employee
+              (absence of history is unambiguous)
 
-        2. No current slip → missing_slip
-           (employee disappeared from payroll this month)
+          2. No current slip → missing_slip
+              (employee disappeared from payroll this month)
 
-        3. Specific deduction components removed → missing_deduction
-           (we have component-level evidence, not just totals)
+          3. Gross pay also changed significantly → salary_revision
+              (both earnings structure AND net changed together = explainable)
 
-        4. Gross pay also changed significantly → salary_revision
-           (both earnings structure AND net changed together = explainable)
+          4. Specific deduction components removed → missing_deduction
+              (we have component-level evidence, not just totals)
 
-        5. Large net change (>30%) with flat gross → data_error
-           (net changed without an earnings cause = suspicious)
+          5. Large net change (>30%) with flat gross → data_error
+              (net changed without an earnings cause = suspicious)
 
-        6. Moderate deduction anomaly with flat gross → missing_deduction
-           (deductions changed, gross didn't, no component detail available)
+          6. Moderate deduction anomaly with flat gross → missing_deduction
+              (deductions changed, gross didn't, no component detail available)
 
-        7. Fallback → data_error
+          7. Fallback → data_error
         """
         comp = flagged.comparison
         reasons = flagged.anomaly_reasons
@@ -312,17 +312,17 @@ class CategorizationAgent:
         if "missing_slip" in reasons:
             return AnomalyCategory.missing_slip
 
-        # Rule 3 — explicit component-level evidence
-        if comp.missing_deduction_components:
-            return AnomalyCategory.missing_deduction
-
-        # Rules 4 & 5 use gross pay context
+        # Rules 3 & 5 use gross pay context
         gross_change_pct = self._gross_change_pct(comp)
         gross_changed = gross_change_pct > _GROSS_CHANGE_THRESHOLD_PCT
 
-        # Rule 4 — earnings structure changed alongside net
+        # Rule 3 — earnings structure changed alongside net
         if gross_changed:
             return AnomalyCategory.salary_revision
+
+        # Rule 4 — explicit component-level evidence
+        if comp.missing_deduction_components:
+            return AnomalyCategory.missing_deduction
 
         # Rule 5 — large net change, gross flat → suspicious
         abs_delta = abs(comp.net_delta_pct or 0)
@@ -346,20 +346,16 @@ class CategorizationAgent:
         """
         Assign severity from category + magnitude.
 
-        Category-first rules (override percentage logic):
-          - new_employee  → low  (expected, just verify)
-          - missing_slip  → high (employee missing from payroll is urgent)
-          - missing_deduction → medium (needs checking, not immediately critical)
+                Override rules (override percentage logic):
+                    - missing_slip  → high (employee missing from payroll is urgent)
+                    - missing_deduction → medium (needs checking, not immediately critical)
 
-        Percentage-based rules for remaining categories:
-          - >= 90%  → critical
-          - >= 50%  → high
-          - >= 15%  → medium
-          - < 15%   → low
+                Percentage-based rules for remaining cases:
+                    - > 90%  → critical
+                    - > 70%  → high
+                    - > 30%  → medium
+                    - <= 30% → low
         """
-        if category == AnomalyCategory.new_employee:
-            return AnomalySeverity.low
-
         if category == AnomalyCategory.missing_slip:
             return AnomalySeverity.high
 
@@ -368,14 +364,13 @@ class CategorizationAgent:
 
         # For salary_revision and data_error, use delta_pct
         abs_delta = abs(delta_pct or 0)
-        if abs_delta >= 90:
+        if abs_delta > 90:
             return AnomalySeverity.critical
-        elif abs_delta >= 50:
+        if abs_delta > 70:
             return AnomalySeverity.high
-        elif abs_delta >= 15:
+        if abs_delta > 30:
             return AnomalySeverity.medium
-        else:
-            return AnomalySeverity.low
+        return AnomalySeverity.low
 
     # ------------------------------------------------------------------
     # Step 3: Deterministic review flag

@@ -35,7 +35,8 @@ _SUMMARY_SYSTEM = (
     "You are a concise payroll audit assistant. "
     "Write a 2-3 sentence executive summary for an HR manager. "
     "Be direct, factual, and highlight the most important findings. "
-    "Mention the count of records requiring manual review."
+    "Include total anomalies, category breakdown, manual review count, "
+    "highest severity issue, and operational payroll impact."
 )
 
 # Severity sort weight — higher = more urgent = appears first
@@ -203,6 +204,10 @@ class ReportBuilderAgent:
             + (f", {top.pct_change:+.1f}% net pay change" if top.pct_change else "")
             + ")"
         )
+        impact_str = (
+            f"{len(anomalies)} of {employees_in_current_payroll} employee(s) "
+            f"in the current payroll"
+        )
 
         prompt = (
             f"Payroll audit for {period_current} (vs {period_previous}):\n"
@@ -211,6 +216,7 @@ class ReportBuilderAgent:
             f"  - Anomalies detected     : {len(anomalies)} ({breakdown_str})\n"
             f"  - Requiring manual review: {needs_review}\n"
             f"  - Most urgent case       : {top_str}\n\n"
+            f"Operational payroll impact: {impact_str}.\n\n"
             f"Write a 2-3 sentence executive summary for the HR manager."
         )
 
@@ -225,6 +231,7 @@ class ReportBuilderAgent:
             return (
                 f"Payroll audit for {period_current} identified {len(anomalies)} anomaly(s) "
                 f"across {employees_evaluated} evaluated employees: {breakdown_str}. "
-                f"{needs_review} record(s) require manual review before payroll is finalised. "
-                f"Most urgent: {top_str}."
+                f"{needs_review} record(s) require manual review before payroll is finalised, "
+                f"impacting {impact_str}. "
+                f"Highest severity case: {top_str}."
             )
