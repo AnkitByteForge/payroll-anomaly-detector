@@ -1,15 +1,9 @@
 """
 test_pipeline.py
 
-Phase 5 test — run from the backend/ directory.
-Runs the complete pre-HITL pipeline:
-  DataFetchAgent → ComparisonAgent → AnomalyDetectorAgent
-  → CategorizationAgent (LLM) → ReportBuilderAgent
-
-Prints:
-  - HITL preview (what the user would see before confirming)
-  - Full anomaly report JSON
-  - LLM executive summary
+Phase 5 test — full pipeline through all 5 agents.
+Updated to pass employees_evaluated + employees_in_current_payroll
+and display the new severity / requires_manual_review fields.
 
 Run with:
     cd backend
@@ -24,7 +18,6 @@ import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Suppress debug logs for a clean test output
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-8s | %(message)s",
@@ -39,148 +32,125 @@ from agents.report_builder import ReportBuilderAgent
 from config import settings
 
 
-def separator(title: str, width: int = 70):
-    print(f"\n{'='*width}")
-    print(f"  {title}")
-    print(f"{'='*width}")
+def sep(title: str, w: int = 70):
+    print(f"\n{'='*w}\n  {title}\n{'='*w}")
 
 
-def fmt(val, prefix="") -> str:
-    if val is None:
+def fmt(v) -> str:
+    return f"{v:>12,.2f}" if v is not None else "         N/A"
+
+
+def pct(v) -> str:
+    if v is None:
         return "N/A"
-    return f"{prefix}{val:>10,.2f}"
+    sign = "+" if v >= 0 else ""
+    flag = "⚠️ " if abs(v) > settings.anomaly_threshold_pct else "   "
+    return f"{flag}{sign}{v:.1f}%"
 
 
-def pct(val) -> str:
-    if val is None:
-        return "N/A"
-    sign = "+" if val >= 0 else ""
-    flag = "⚠️ " if abs(val) > settings.anomaly_threshold_pct else "   "
-    return f"{flag}{sign}{val:.1f}%"
+SEVERITY_ICON = {
+    "critical": "🔴",
+    "high":     "🟠",
+    "medium":   "🟡",
+    "low":      "🟢",
+}
 
 
 async def main():
-    print("\n🚀 PAYROLL ANOMALY DETECTOR — Phase 5: Full Pipeline Test")
-    print(f"   Threshold: ±{settings.anomaly_threshold_pct}%  |  LLM: {settings.groq_model}\n")
+    print(f"\n🚀 PAYROLL ANOMALY DETECTOR — Full Pipeline Test")
+    print(f"   Threshold : ±{settings.anomaly_threshold_pct}%  |  LLM: {settings.groq_model}\n")
 
-    # -----------------------------------------------------------------------
-    # Stage 1: DataFetchAgent
-    # -----------------------------------------------------------------------
-    separator("STAGE 1 — DataFetchAgent")
-    fetch_agent = DataFetchAgent()
-    data = await fetch_agent.run()
-    print(
-        f"  ✅ Fetched  current: {len(data.current_summaries)} slips  |  "
-        f"previous: {len(data.previous_summaries)} slips  |  "
-        f"employees: {len(data.employee_details)}"
-    )
-    print(f"     Period: {data.period_previous} → {data.period_current}")
+    # Stage 1
+    sep("STAGE 1 — DataFetchAgent")
+    data = await DataFetchAgent().run()
+    print(f"  ✅  current={len(data.current_summaries)} slips | "
+          f"previous={len(data.previous_summaries)} slips | "
+          f"employees={len(data.employee_details)}")
+    print(f"      Period: {data.period_previous} → {data.period_current}")
 
-    # -----------------------------------------------------------------------
-    # Stage 2: ComparisonAgent
-    # -----------------------------------------------------------------------
-    separator("STAGE 2 — ComparisonAgent")
-    comparison_agent = ComparisonAgent()
-    records = comparison_agent.run(data)
-    print(f"  ✅ Built {len(records)} comparison record(s)")
+    # Stage 2
+    sep("STAGE 2 — ComparisonAgent")
+    records = ComparisonAgent().run(data)
+    print(f"  ✅  {len(records)} comparison record(s) built")
 
-    # -----------------------------------------------------------------------
-    # Stage 3: AnomalyDetectorAgent
-    # -----------------------------------------------------------------------
-    separator("STAGE 3 — AnomalyDetectorAgent")
-    anomaly_agent = AnomalyDetectorAgent()
-    flagged = anomaly_agent.run(records)
-    stats = anomaly_agent.summary_stats(flagged)
-    print(f"  ✅ Flagged {len(flagged)} / {len(records)} employee(s)")
+    # Stage 3
+    sep("STAGE 3 — AnomalyDetectorAgent")
+    flagged = AnomalyDetectorAgent().run(records)
+    stats = AnomalyDetectorAgent().summary_stats(flagged)
+    print(f"  ✅  {len(flagged)} / {len(records)} flagged")
     for reason, count in stats.items():
-        print(f"     {reason:<28}: {count}")
+        print(f"      {reason:<28}: {count}")
 
-    if not flagged:
-        print("\n  ✅ No anomalies to process. Pipeline will produce a clean report.")
-
-    # -----------------------------------------------------------------------
-    # Stage 4: CategorizationAgent (LLM)
-    # -----------------------------------------------------------------------
-    separator("STAGE 4 — CategorizationAgent  (Groq LLM calls)")
-    print("  Sending flagged records to Groq for classification...\n")
-
-    cat_agent = CategorizationAgent()
-    anomalies = await cat_agent.run(flagged, data.employee_details)
+    # Stage 4
+    sep("STAGE 4 — CategorizationAgent  (deterministic rules + Groq text)")
+    print("  Classifying and generating explanations...\n")
+    anomalies = await CategorizationAgent().run(flagged, data.employee_details)
 
     for a in anomalies:
-        pct_display = pct(a.pct_change)
-        print(f"  [{a.anomaly_category.value.upper():<20}] {a.employee_name}")
-        print(f"     Net pay change  : {fmt(a.prev_net_pay)} → {fmt(a.curr_net_pay)}  ({pct_display})")
-        print(f"     Suggested action: {a.suggested_action}")
-        print(f"     LLM explanation : {a.llm_explanation}")
+        icon = SEVERITY_ICON.get(a.severity.value, "⚪")
+        review = "⬛ MANUAL REVIEW" if a.requires_manual_review else "✅ no review"
+        print(f"  {icon} [{a.anomaly_category.value.upper():<20}] {a.employee_name}")
+        print(f"     Severity       : {a.severity.value.upper()}  |  {review}")
+        print(f"     Net pay change : {fmt(a.prev_net_pay)} → {fmt(a.curr_net_pay)}  ({pct(a.pct_change)})")
+        print(f"     Explanation    : {a.llm_explanation}")
+        print(f"     Action         : {a.suggested_action}")
         if a.missing_deduction_components:
-            print(f"     Missing deducts : {', '.join(a.missing_deduction_components)}")
+            print(f"     Missing dedcts : {', '.join(a.missing_deduction_components)}")
         print()
 
-    print(f"  ✅ Categorized {len(anomalies)} anomaly record(s)")
-
-    # -----------------------------------------------------------------------
-    # Stage 5: ReportBuilderAgent
-    # -----------------------------------------------------------------------
-    separator("STAGE 5 — ReportBuilderAgent  (builds final report)")
-
-    builder = ReportBuilderAgent()
-    preview, report = await builder.run(
+    # Stage 5
+    sep("STAGE 5 — ReportBuilderAgent")
+    preview, report = await ReportBuilderAgent().run(
         anomalies=anomalies,
-        total_employees=len(data.current_summaries),
+        employees_evaluated=len(records),                    # union of both months
+        employees_in_current_payroll=len(data.current_summaries),
         period_current=data.period_current,
         period_previous=data.period_previous,
     )
-    print(f"  ✅ Report assembled")
+    print(f"  ✅  Report assembled")
 
-    # -----------------------------------------------------------------------
-    # HITL Preview (what the frontend will show)
-    # -----------------------------------------------------------------------
-    separator("HITL PREVIEW  (what the user sees before confirming)")
+    # HITL Preview
+    sep("HITL PREVIEW  (confirmation screen)")
     print(f"\n  {preview.confirmation_prompt}\n")
-    print(f"  Total employees  : {preview.total_employees}")
-    print(f"  Total anomalies  : {preview.total_anomalies}")
-    print(f"\n  Breakdown:")
-    b = preview.breakdown
-    for field, count in b.model_dump().items():
+    print(f"  Employees in current payroll : {preview.employees_in_current_payroll}")
+    print(f"  Total anomalies              : {preview.total_anomalies}")
+    needs_review = sum(1 for a in anomalies if a.requires_manual_review)
+    print(f"  Requiring manual review      : {needs_review}")
+    print(f"\n  Breakdown by category:")
+    for field, count in preview.breakdown.model_dump().items():
         if count > 0:
             print(f"    {field:<25}: {count}")
 
     if preview.top_3_anomalies:
-        print(f"\n  Top {len(preview.top_3_anomalies)} anomalies:")
+        print(f"\n  Top {len(preview.top_3_anomalies)} by severity + magnitude:")
         for i, t in enumerate(preview.top_3_anomalies, 1):
+            icon = SEVERITY_ICON.get(t.severity.value, "⚪")
             print(
-                f"    {i}. {t.employee_name:<25}  "
-                f"{fmt(t.prev_net_pay)} → {fmt(t.curr_net_pay)}  "
-                f"({pct(t.pct_change)})  [{t.category.value}]"
+                f"    {i}. {icon} {t.employee_name:<25} "
+                f"{fmt(t.prev_net_pay)} → {fmt(t.curr_net_pay)}"
+                f"  ({pct(t.pct_change)})  [{t.category.value}]"
             )
 
-    # -----------------------------------------------------------------------
     # Executive Summary
-    # -----------------------------------------------------------------------
-    separator("EXECUTIVE SUMMARY  (LLM generated)")
+    sep("EXECUTIVE SUMMARY")
     print(f"\n  {report.summary}\n")
 
-    # -----------------------------------------------------------------------
-    # Full Report JSON
-    # -----------------------------------------------------------------------
-    separator("FULL REPORT JSON  (stored in session, returned after HITL confirm)")
-    report_dict = report.model_dump(mode="json")
-    # Pretty-print but truncate long lists for readability
-    print(json.dumps(report_dict, indent=2, default=str))
+    # Metrics check
+    sep("REPORT METRICS")
+    print(f"  employees_evaluated         : {report.employees_evaluated}")
+    print(f"  employees_in_current_payroll: {report.employees_in_current_payroll}")
+    print(f"  total_anomalies             : {report.total_anomalies}")
+    print(f"  threshold_pct               : {report.threshold_pct}%")
+    print(f"  period                      : {report.period_previous} → {report.period_current}")
 
-    # -----------------------------------------------------------------------
-    # Summary
-    # -----------------------------------------------------------------------
-    separator("PHASE 5 COMPLETE")
-    print(f"  DataFetchAgent       ✅")
-    print(f"  ComparisonAgent      ✅")
-    print(f"  AnomalyDetectorAgent ✅")
-    print(f"  CategorizationAgent  ✅  (Groq LLM)")
-    print(f"  ReportBuilderAgent   ✅  (Groq LLM summary)")
-    print()
-    print("  Full pipeline running end-to-end.")
-    print("  Next: Phase 6 — Orchestrator + Team + Workflow")
+    # Full JSON
+    sep("FULL REPORT JSON")
+    print(json.dumps(report.model_dump(mode="json"), indent=2, default=str))
+
+    sep("PIPELINE COMPLETE ✅")
+    print("  All 5 agents ran successfully.")
+    print("  Deterministic categorization: category/severity/review set by rules.")
+    print("  LLM used only for: explanation text, suggested actions, executive summary.")
     print()
 
 
