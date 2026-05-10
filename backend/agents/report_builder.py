@@ -36,8 +36,8 @@ _SUMMARY_SYSTEM = (
     "Write a 2-3 sentence executive summary for an HR manager. "
     "Be direct, factual, and highlight the most important findings. "
     "Include evaluated employees, current payroll employees, affected employees, "
-    "category breakdown, manual review count, highest severity issue, and "
-    "operational payroll impact."
+    "category breakdown, manual review count, highest severity issue, onboarding "
+    "anomalies (if any), and operational payroll impact."
 )
 
 # Severity sort weight — higher = more urgent = appears first
@@ -99,8 +99,9 @@ class ReportBuilderAgent:
                 "Confirm to finalise the clean audit report?"
             )
         else:
+            anomaly_word = "anomaly" if n == 1 else "anomalies"
             confirmation_prompt = (
-                f"I found {n} anomaly{'s' if n != 1 else ''} in this month's payroll "
+                f"I found {n} {anomaly_word} in this month's payroll "
                 f"({needs_review} requiring manual review). "
                 f"Confirm and finalise the report for HR review?"
             )
@@ -199,6 +200,7 @@ class ReportBuilderAgent:
             for cat, count in category_counts.items()
         )
         affected_employees = len({a.employee_id for a in anomalies})
+        onboarding_anomalies = category_counts.get(AnomalyCategory.new_employee.value, 0)
         top = anomalies[0]
         top_str = (
             f"{top.employee_name} ({top.anomaly_category.value}, "
@@ -218,6 +220,7 @@ class ReportBuilderAgent:
             f"  - Affected employees     : {affected_employees}\n"
             f"  - Anomalies detected     : {len(anomalies)} ({breakdown_str})\n"
             f"  - Requiring manual review: {needs_review}\n"
+            f"  - Onboarding anomalies   : {onboarding_anomalies}\n"
             f"  - Most urgent case       : {top_str}\n\n"
             f"Operational payroll impact: {impact_str}.\n\n"
             f"Write a 2-3 sentence executive summary for the HR manager."
@@ -233,8 +236,9 @@ class ReportBuilderAgent:
             )
             return (
                 f"Payroll audit for {period_current} identified {len(anomalies)} anomaly(s) "
-                f"across {affected_employees} affected employee(s) out of "
-                f"{employees_evaluated} evaluated: {breakdown_str}. "
+                f"across {employees_evaluated} evaluated employees: {breakdown_str}. "
+                f"Issues affect {employees_in_current_payroll} current payroll employees "
+                f"with {onboarding_anomalies} onboarding-related anomaly(s). "
                 f"{needs_review} record(s) require manual review before payroll is finalised, "
                 f"impacting {impact_str}. "
                 f"Highest severity case: {top_str}."

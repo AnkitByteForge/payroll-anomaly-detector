@@ -144,12 +144,12 @@ Write the explanation and suggested_action JSON."""
 
 _FALLBACK_EXPLANATIONS: dict[AnomalyCategory, str] = {
     AnomalyCategory.new_employee: (
-        "No prior-month slip exists for this employee, indicating a new joiner "
-        "or first payroll run."
+        "This employee appears only in the current payroll cycle, so no historical "
+        "payroll baseline exists for comparison."
     ),
     AnomalyCategory.missing_slip: (
-        "A prior-month slip exists, but the current-month slip is missing, "
-        "suggesting a payroll omission."
+        "The current payroll slip is absent, preventing complete payroll verification "
+        "for this employee."
     ),
     AnomalyCategory.missing_deduction: (
         "Deduction components present last month are absent this month, "
