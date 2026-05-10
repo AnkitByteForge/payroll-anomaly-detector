@@ -62,11 +62,16 @@ _GROSS_CHANGE_THRESHOLD_PCT = 2.0
 # LLM prompts
 # ---------------------------------------------------------------------------
 
-_SYSTEM_PROMPT = """You are a payroll audit assistant helping an HR team.
-The anomaly category and severity have already been determined by the system.
-Your job is ONLY to:
-  1. Write a clear 1-2 sentence explanation of why this record was flagged.
-  2. Write a specific, actionable 1-2 sentence suggestion for the HR team.
+_SYSTEM_PROMPT = """You are a payroll audit reviewer preparing concise commentary.
+The anomaly category and severity are already determined by the system.
+Write:
+    1) A 1-2 sentence explanation in a professional audit tone.
+    2) A short, operational suggested action (1 sentence).
+
+Style rules:
+- Avoid repetitive openings (do not start with "This record was flagged...").
+- Vary phrasing naturally across records.
+- Keep language executive-ready and concrete.
 
 Respond ONLY with valid JSON — no markdown, no text outside the JSON object:
 {"explanation": "...", "suggested_action": "..."}"""
@@ -139,47 +144,42 @@ Write the explanation and suggested_action JSON."""
 
 _FALLBACK_EXPLANATIONS: dict[AnomalyCategory, str] = {
     AnomalyCategory.new_employee: (
-        "No salary slip exists for this employee in the previous month, "
-        "indicating they are likely a new joiner."
+        "No prior-month slip exists for this employee, indicating a new joiner "
+        "or first payroll run."
     ),
     AnomalyCategory.missing_slip: (
-        "This employee had a salary slip last month but none this month. "
-        "Their slip may have been missed during payroll processing."
+        "A prior-month slip exists, but the current-month slip is missing, "
+        "suggesting a payroll omission."
     ),
     AnomalyCategory.missing_deduction: (
-        "One or more deduction components present last month are absent "
-        "from this month's salary slip."
+        "Deduction components present last month are absent this month, "
+        "indicating a deduction removal or capture issue."
     ),
     AnomalyCategory.salary_revision: (
-        "Both gross pay and net pay changed between months, suggesting "
-        "a planned salary revision or appraisal was applied."
+        "Gross and net pay both changed between months, consistent with a "
+        "salary revision or appraisal."
     ),
     AnomalyCategory.data_error: (
-        "Net pay changed significantly while gross pay remained flat, "
-        "which is unexplained by any earnings structure change."
+        "Net pay shifted materially while gross pay remained flat, which is "
+        "inconsistent with an earnings structure change."
     ),
 }
 
 _FALLBACK_ACTIONS: dict[AnomalyCategory, str] = {
     AnomalyCategory.new_employee: (
-        "Verify onboarding date and confirm the salary structure "
-        "is correctly assigned for this employee."
+        "Confirm onboarding date and salary structure assignment before payout."
     ),
     AnomalyCategory.missing_slip: (
-        "Confirm the employee is still active and re-run payroll "
-        "for this month if the slip is missing."
+        "Verify employment status and re-run payroll for the missing slip."
     ),
     AnomalyCategory.missing_deduction: (
-        "Check whether the deduction component was intentionally removed "
-        "from the salary structure or is a data entry error."
+        "Validate the deduction change against approved policy or structure."
     ),
     AnomalyCategory.salary_revision: (
-        "Cross-check with the approved salary revision letter or appraisal "
-        "record to confirm this change was authorised."
+        "Verify approved revision documentation and confirm payroll accuracy."
     ),
     AnomalyCategory.data_error: (
-        "Escalate to the payroll administrator for immediate manual review — "
-        "this change has no corresponding earnings structure justification."
+        "Escalate for immediate payroll review and correction before payout."
     ),
 }
 
