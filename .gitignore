@@ -11,7 +11,7 @@ env/
 
 # Environment files
 .env
-.env.*
+
 
 # Test/coverage caches
 .pytest_cache/
