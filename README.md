@@ -285,6 +285,10 @@ payroll-anomaly-detector/
 
 ---
 
+## Video demo
+https://www.loom.com/share/5ee5ac69bdc44774b69e156534557c54
+
+
 # Setup Instructions
 
 Detailed setup instructions are available in:
