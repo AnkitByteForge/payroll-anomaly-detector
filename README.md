@@ -274,14 +274,14 @@ payroll-anomaly-detector/
 
 ## HITL Confirmation Flow
 
-![HITL](assets/hitl-confirmation.png)
+![HITL](screenshots/hitl-confirmation.png)
 
 
 ---
 
 ## Final Payroll Audit Report
 
-![Final Report](assets/final-report.png)
+![Final Report](screenshots/final-report.png)
 
 ---
 
