@@ -273,10 +273,11 @@ class RunRequest(BaseModel):
 
 class RunResponse(BaseModel):
     status: str
-    session_id: str
+    session_id: Optional[str] = None
     preview: Optional[HITLPreview] = None
     report: Optional[AnomalyReport] = None
     message: Optional[str] = None
+    available_periods: Optional[list[str]] = None
 
 
 class ConfirmRequest(BaseModel):

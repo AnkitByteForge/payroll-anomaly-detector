@@ -24,6 +24,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
+from agents.orchestrator import NoPayrollData
 from agents.team import team
 from schemas.models import (
     ConfirmRequest,
@@ -73,6 +74,16 @@ async def run_agent(request: RunRequest) -> RunResponse:
     try:
         # Run the full multi-agent pipeline via the team
         result = await team.run(request.prompt)
+
+    except NoPayrollData as e:
+        logger.info("[/run] No payroll data for %s vs %s", e.period_previous, e.period_current)
+        return RunResponse(
+            status="no_data",
+            session_id=None,
+            message=(
+                f"No payroll records found for {e.period_previous}–{e.period_current}."
+            ),
+        )
 
     except ERPNextError as e:
         # ERPNext unreachable or returned an error — surface as 503

@@ -40,6 +40,15 @@ from schemas.models import AnomalyReport, HITLPreview
 logger = logging.getLogger(__name__)
 
 
+class NoPayrollData(Exception):
+    def __init__(self, period_current: str, period_previous: str):
+        self.period_current = period_current
+        self.period_previous = period_previous
+        super().__init__(
+            f"No payroll data for {period_previous} vs {period_current}"
+        )
+
+
 @dataclass
 class PipelineResult:
     """
@@ -115,6 +124,14 @@ class PayrollOrchestrator:
             len(data.previous_summaries),
             len(data.employee_details),
         )
+
+        if not data.current_summaries and not data.previous_summaries:
+            logger.warning(
+                "[Orchestrator] No payroll data available for periods %s vs %s",
+                data.period_previous,
+                data.period_current,
+            )
+            raise NoPayrollData(data.period_current, data.period_previous)
 
         # ── Stage 2: COMPARISON ──────────────────────────────────────────
         logger.info("[Orchestrator] Stage 2 → ComparisonAgent")
