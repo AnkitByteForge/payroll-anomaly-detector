@@ -13,7 +13,7 @@ Changes from previous version:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 from uuid import uuid4
@@ -253,7 +253,7 @@ class PendingSession(BaseModel):
     prompt: str
     preview: Optional[HITLPreview] = None
     pending_report: Optional[AnomalyReport] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     resolved_at: Optional[datetime] = None
 
 
@@ -265,7 +265,9 @@ class PendingSession(BaseModel):
 class RunRequest(BaseModel):
     prompt: str = Field(
         ...,
-        example="Review this month's payroll and flag anything that seems off.",
+        json_schema_extra={
+            "example": "Review this month's payroll and flag anything that seems off."
+        },
     )
 
 

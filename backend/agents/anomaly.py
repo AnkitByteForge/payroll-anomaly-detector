@@ -17,10 +17,16 @@ Threshold: configurable via ANOMALY_THRESHOLD_PCT in .env (default 15.0%)
 
 Input:  list[ComparisonRecord] (from ComparisonAgent)
 Output: list[FlaggedRecord]
+
+Agno compliance:
+  - AgnoAnomalyDetectorAgent wraps AnomalyDetectorAgent as an agno.agent.Agent.
+  - All rule-based logic is delegated to AnomalyDetectorAgent.run().
+  - No business rules are moved into prompts.
 """
 
 import logging
 
+from agno.agent.agent import Agent
 from config import settings
 from schemas.models import ComparisonRecord, FlaggedRecord
 
@@ -194,3 +200,41 @@ class AnomalyDetectorAgent:
             for reason in fr.anomaly_reasons:
                 counts[reason] = counts.get(reason, 0) + 1
         return counts
+
+
+# ---------------------------------------------------------------------------
+# Agno compliance wrapper
+# ---------------------------------------------------------------------------
+
+
+class AgnoAnomalyDetectorAgent(Agent):
+    """
+    Agno-compliant wrapper around AnomalyDetectorAgent.
+
+    Exposes the deterministic rule engine as an agno.agent.Agent so the
+    PayrollAnalysisTeam (agno.team.Team) can declare it as a named member.
+
+    No anomaly rules are moved into prompts — all logic stays in
+    AnomalyDetectorAgent._detect_reasons().
+    """
+
+    def __init__(self, threshold_pct: float | None = None):
+        super().__init__(
+            name="AnomalyDetectorAgent",
+            description=(
+                "Rule-based payroll anomaly detector. "
+                "Flags employees whose net pay changed beyond the configured "
+                "threshold, or who have missing slips, missing deduction "
+                "components, or suspicious deduction drops. "
+                "Entirely deterministic — no LLM."
+            ),
+        )
+        self._impl = AnomalyDetectorAgent(threshold_pct=threshold_pct)
+        logger.debug(
+            "[AgnoAnomalyDetectorAgent] Initialised | threshold=%.1f%%",
+            self._impl.threshold_pct,
+        )
+
+    def run_detection(self, records):
+        """Delegate to the underlying AnomalyDetectorAgent."""
+        return self._impl.run(records)

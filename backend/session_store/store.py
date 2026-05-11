@@ -18,7 +18,7 @@ Public API:
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from schemas.models import (
@@ -58,7 +58,7 @@ async def create_session(
         prompt=prompt,
         preview=preview,
         pending_report=pending_report,
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
 
     async with _lock:
@@ -98,7 +98,7 @@ async def resolve_session(session_id: str, confirmed: bool) -> PendingSession | 
         session.status = (
             SessionStatus.confirmed if confirmed else SessionStatus.cancelled
         )
-        session.resolved_at = datetime.utcnow()
+        session.resolved_at = datetime.now(timezone.utc)
         logger.info(
             "Session %s resolved as: %s", session_id, session.status.value
         )

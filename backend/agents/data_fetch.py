@@ -178,7 +178,7 @@ class DataFetchAgent:
 
         details: dict[str, SalarySlipDetail] = {}
         for slip, result in zip(summaries, results):
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 logger.warning(
                     "[DataFetchAgent] Could not fetch detail for slip %s (%s): %s",
                     slip.name,
@@ -206,7 +206,7 @@ class DataFetchAgent:
 
         details: dict[str, EmployeeDetail] = {}
         for emp_id, result in zip(employee_ids, results):
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 logger.warning(
                     "[DataFetchAgent] Could not fetch employee detail for %s: %s",
                     emp_id,

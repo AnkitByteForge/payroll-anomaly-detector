@@ -36,6 +36,7 @@ This means the system correctly handles cases like:
 import asyncio
 import logging
 
+from agno.agent.agent import Agent
 from schemas.models import (
     AnomalyCategory,
     AnomalySeverity,
@@ -466,3 +467,44 @@ class CategorizationAgent:
         if comp.prev_gross == 0:
             return 100.0 if comp.curr_gross > 0 else 0.0
         return abs((comp.curr_gross - comp.prev_gross) / comp.prev_gross) * 100
+
+
+# ---------------------------------------------------------------------------
+# Agno compliance wrapper
+# ---------------------------------------------------------------------------
+
+
+class AgnoCategorizationAgent(Agent):
+    """
+    Agno-compliant wrapper around CategorizationAgent.
+
+    Exposes the categorization stage as an agno.agent.Agent so the
+    PayrollAnalysisTeam (agno.team.Team) can declare it as a named member.
+
+    The wrapper keeps a strict boundary:
+      - Deterministic steps (category, severity, review flag) stay in
+        CategorizationAgent._determine_category / _assign_severity /
+        _requires_manual_review.
+      - LLM is used ONLY for human-readable explanation and suggested_action
+        via CategorizationAgent._llm_explain().
+      - Nothing is moved into the Agent prompt.
+    """
+
+    def __init__(self):
+        super().__init__(
+            name="CategorizationAgent",
+            description=(
+                "Payroll anomaly categorization agent. "
+                "Assigns category (new_employee / missing_slip / "
+                "missing_deduction / salary_revision / data_error), "
+                "severity (low / medium / high / critical), and review flag "
+                "via deterministic rules. Uses LLM only for explanation text "
+                "and suggested action wording."
+            ),
+        )
+        self._impl = CategorizationAgent()
+        logger.debug("[AgnoCategorizationAgent] Initialised (wraps CategorizationAgent)")
+
+    async def run_categorization(self, flagged_records, employee_details):
+        """Delegate to the underlying async CategorizationAgent."""
+        return await self._impl.run(flagged_records, employee_details)

@@ -9,10 +9,16 @@ Changes from previous version:
     flagged every previous deduction component as "missing".
 
 Everything else is identical to the previous version.
+
+Agno compliance:
+  - AgnoComparisonAgent wraps ComparisonAgent as an agno.agent.Agent.
+  - The wrapper delegates ALL logic to ComparisonAgent.run().
+  - Deterministic behaviour is completely preserved.
 """
 
 import logging
 
+from agno.agent.agent import Agent
 from agents.data_fetch import FetchedPayrollData
 from schemas.models import ComparisonRecord, SalarySlipSummary
 
@@ -68,19 +74,19 @@ class ComparisonAgent:
                     if c not in curr_deduction_components
                 ]
 
-            prev_net = float(prev_slip.net_pay) if prev_slip else None
-            curr_net = float(curr_slip.net_pay) if curr_slip else None
+            prev_net = prev_slip.net_pay if prev_slip else None
+            curr_net = curr_slip.net_pay if curr_slip else None
             net_delta, net_delta_pct = self._calculate_delta(prev_net, curr_net)
 
-            prev_ded = float(prev_slip.total_deduction) if prev_slip else None
-            curr_ded = float(curr_slip.total_deduction) if curr_slip else None
+            prev_ded = prev_slip.total_deduction if prev_slip else None
+            curr_ded = curr_slip.total_deduction if curr_slip else None
             deduction_delta = (
                 round(curr_ded - prev_ded, 2)
                 if curr_ded is not None and prev_ded is not None else None
             )
 
-            prev_gross = float(prev_slip.gross_pay) if prev_slip else None
-            curr_gross = float(curr_slip.gross_pay) if curr_slip else None
+            prev_gross = prev_slip.gross_pay if prev_slip else None
+            curr_gross = curr_slip.gross_pay if curr_slip else None
 
             employee_name = (curr_slip or prev_slip).employee_name  # type: ignore
 
@@ -136,3 +142,38 @@ class ComparisonAgent:
         else:
             pct = round((delta / abs(prev)) * 100, 2)
         return delta, pct
+
+
+# ---------------------------------------------------------------------------
+# Agno compliance wrapper
+# ---------------------------------------------------------------------------
+
+
+class AgnoComparisonAgent(Agent):
+    """
+    Agno-compliant wrapper around ComparisonAgent.
+
+    Exposes the existing deterministic comparison logic as an agno.agent.Agent
+    so the PayrollAnalysisTeam (agno.team.Team) can list it as a named member.
+
+    The wrapper does NOT move any business logic into the prompt — the
+    ComparisonAgent.run() method is called directly and its output is
+    returned unchanged.
+    """
+
+    def __init__(self):
+        super().__init__(
+            name="ComparisonAgent",
+            description=(
+                "Month-over-month payroll comparison agent. "
+                "Computes net pay deltas, gross pay deltas, deduction deltas, "
+                "and missing deduction components for every employee. "
+                "Pure deterministic computation — no LLM."
+            ),
+        )
+        self._impl = ComparisonAgent()
+        logger.debug("[AgnoComparisonAgent] Initialised (wraps ComparisonAgent)")
+
+    def run_comparison(self, data):
+        """Delegate to the underlying ComparisonAgent."""
+        return self._impl.run(data)

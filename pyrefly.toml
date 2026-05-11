@@ -1,0 +1,32 @@
+# pyrefly.toml — Pyrefly type checker configuration
+#
+# PURPOSE: Point Pyrefly at the project venv AND the backend source root so it
+# can resolve every project module (agents, schemas, services, config, etc.)
+# as well as every installed package (agno, sqlalchemy, fastapi, groq, ...).
+#
+# Pyrefly does NOT read pyrightconfig.json — this is its own config source.
+
+# ── Source search path ───────────────────────────────────────────────────────
+# All project code lives under `backend/`.
+# Adding it here lets Pyrefly find agents.*, schemas.*, services.*, config, etc.
+search-path = [
+    "backend",
+]
+
+# ── Installed packages ───────────────────────────────────────────────────────
+# Point at the venv's site-packages so Pyrefly resolves agno, sqlalchemy, etc.
+site-package-path = [
+    "venv/Lib/site-packages",
+]
+
+# ── Python runtime ───────────────────────────────────────────────────────────
+python-platform = "win32"
+python-version = "3.11.9"
+
+# ── Directories to skip ─────────────────────────────────────────────────────
+project-excludes = [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/venv/**",
+    "**/frontend/**",
+]

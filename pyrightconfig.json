@@ -1,0 +1,19 @@
+{
+  "venvPath": ".",
+  "venv": "venv",
+  "pythonVersion": "3.11",
+  "pythonPlatform": "Windows",
+  "pythonPath": "venv/Scripts/python.exe",
+  "include": ["backend"],
+  "extraPaths": ["backend"],
+  "exclude": [
+    "venv",
+    "frontend",
+    "**/__pycache__",
+    "**/node_modules",
+    "**/.*",
+    "**/.*/**"
+  ],
+  "reportMissingImports": false,
+  "reportMissingModuleSource": false
+}

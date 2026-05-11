@@ -15,8 +15,9 @@ Everything else (LLM summary, top-3 logic, breakdown, agents_involved) unchanged
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
+from agno.agent.agent import Agent
 from config import settings
 from schemas.models import (
     AnomalyBreakdown,
@@ -123,7 +124,7 @@ class ReportBuilderAgent:
         )
 
         report = AnomalyReport(
-            generated_at=datetime.utcnow(),
+            generated_at=datetime.now(timezone.utc),
             period_current=period_current,
             period_previous=period_previous,
             employees_evaluated=employees_evaluated,
@@ -243,3 +244,52 @@ class ReportBuilderAgent:
                 f"impacting {impact_str}. "
                 f"Highest severity case: {top_str}."
             )
+
+
+# ---------------------------------------------------------------------------
+# Agno compliance wrapper
+# ---------------------------------------------------------------------------
+
+
+class AgnoReportBuilderAgent(Agent):
+    """
+    Agno-compliant wrapper around ReportBuilderAgent.
+
+    Exposes the report assembly stage as an agno.agent.Agent so the
+    PayrollAnalysisTeam (agno.team.Team) can declare it as a named member.
+
+    LLM usage inside ReportBuilderAgent._generate_summary() is intentional:
+    it produces the executive summary narrative. Category / severity / review
+    decisions are never delegated to the LLM here.
+    """
+
+    def __init__(self):
+        super().__init__(
+            name="ReportBuilderAgent",
+            description=(
+                "Payroll audit report assembly agent. "
+                "Builds the HITLPreview (confirmation screen) and the full "
+                "AnomalyReport. Sorts anomalies by severity, computes "
+                "breakdowns and top-3 highlights, and generates an LLM "
+                "executive summary for HR review."
+            ),
+        )
+        self._impl = ReportBuilderAgent()
+        logger.debug("[AgnoReportBuilderAgent] Initialised (wraps ReportBuilderAgent)")
+
+    async def run_report(
+        self,
+        anomalies,
+        employees_evaluated,
+        employees_in_current_payroll,
+        period_current,
+        period_previous,
+    ):
+        """Delegate to the underlying async ReportBuilderAgent."""
+        return await self._impl.run(
+            anomalies=anomalies,
+            employees_evaluated=employees_evaluated,
+            employees_in_current_payroll=employees_in_current_payroll,
+            period_current=period_current,
+            period_previous=period_previous,
+        )
